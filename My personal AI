@@ -1,1 +1,945 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Project AI</title>
+
+  <!-- Tailwind CSS (CDN, zero-build) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Marked (Markdown renderer) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <!-- highlight.js for code block highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+
+  <style>
+    /* Minor CSS adjustments for safe mobile keyboard / full-screen behavior */
+    html, body {
+      height: 100%;
+      background: #f7f7f8;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+/* Ensure single-file app uses min-h-screen and flex layout */
+    #app {
+      min-height: 100vh; /* IMPORTANT: use min-height not h-screen */
+      display: flex;
+      flex-direction: column;
+    }
+    /* Left sidebar width */
+    .sidebar { width: 340px; max-width: 85vw; }
+    /* Safe area for mobile keyboard using env() and constant() */
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0); }
+    /* Loader centered */
+    #loading {
+      position: fixed;
+      inset: 0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background: white;
+      z-index: 60;
+    }
+/* Chat bubble flexibility */
+    .message .bubble {
+      max-width: min(82%, 760px);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    /* Input bar elevation */
+    .input-bar {
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    /* Hide scrollbar for chat list (clean) */
+    .no-scrollbar::-webkit-scrollbar { display:none; }
+    /* Smooth transitions */
+    .transition-fast { transition: all .18s ease-in-out; }
+    /* Mobile sidebar overlay */
+    .mobile-overlay {
+      background: rgba(0,0,0,0.35);
+      position: fixed; inset:0; z-index:40;
+    }
+  </style>
+</head>
+<body class="antialiased">
+<!-- Fallback loader to avoid blank page on GitHub Pages -->
+  <div id="loading" aria-hidden="true">Loading App...</div>
+
+  <div id="app" class="min-h-screen flex flex-col text-gray-900">
+
+    <!-- Top bar -->
+    <header class="flex items-center justify-between px-4 py-3 border-b bg-white dark:bg-[#0f1724] dark:border-[#12202b]">
+      <div class="flex items-center gap-3">
+        <button id="hamburger" class="sm:hidden p-2 rounded-md hover:bg-gray-100 dark:hover:bg-[#0b1220] transition-fast" aria-label="Open sidebar">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <h1 class="text-lg font-semibold select-none">Universal AI Chat</h1>
+        <span id="modelBadge" class="ml-3 px-2 py-0.5 text-xs rounded-md bg-gray-100 dark:bg-[#0b1220]">model: deepseek/deepseek-r1:free</span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="btnSystem" class="px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-[#0b1220]">System Prompt</button>
+        <button id="btnSettings" class="px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-[#0b1220]">Settings</button>
+        <button id="toggleTheme" class="px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-[#0b1220]" title="Toggle dark mode">🌙</button>
+      </div>
+    </header>
+
+    <main class="flex-1 flex min-h-0">
+         <!-- Sidebar (desktop) -->
+      <aside id="sidebar" class="sidebar hidden sm:flex flex-col border-r bg-white dark:bg-[#071021] dark:border-[#12202b]">
+        <div class="flex items-center justify-between p-3 border-b">
+          <strong class="text-sm">Chats</strong>
+          <div class="flex items-center gap-2">
+            <button id="btnNewChat" class="px-2 py-1 text-sm rounded-md bg-blue-600 text-white">+ New</button>
+            <button id="btnClearAll" class="px-2 py-1 text-sm rounded-md hover:bg-gray-100 dark:hover:bg-[#07202b]">Clear</button>
+          </div>
+        </div>
+        <div id="chatsList" class="overflow-auto flex-1 p-2 no-scrollbar"></div>
+      </aside>
+
+      <!-- Mobile sidebar - slides in -->
+            <div id="mobileSidebar" class="fixed inset-y-0 left-0 z-50 w-4/5 max-w-[320px] transform -translate-x-full transition-fast sm:hidden">
+        <div class="h-full bg-white dark:bg-[#071021] border-r dark:border-[#12202b] flex flex-col">
+          <div class="flex items-center justify-between p-3 border-b">
+            <strong>Chats</strong>
+            <button id="mobileClose" class="p-2">✕</button>
+          </div>
+          <div id="mobileChatsList" class="overflow-auto p-2 flex-1 no-scrollbar"></div>
+          <div class="p-3 border-t">
+            <button id="mobileNewChat" class="w-full px-3 py-2 rounded-md bg-blue-600 text-white">New Chat</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- optional overlay for mobile -->
+      <div id="mobileOverlay" class="hidden sm:hidden"></div>
+
+      <!-- Main chat area -->
+      <section id="mainArea" class="flex-1 flex flex-col bg-[#f7f7f8] dark:bg-[#001219]">
+        <div id="chatHeader" class="px-4 py-3 border-b flex items-center justify-between bg-white dark:bg-[#071118] dark:border-[#07202b]">
+          <div>
+            <h2 id="chatTitle" class="font-semibold text-lg">Welcome</h2>
+            <div id="chatSubtitle" class="text-xs text-gray-500 dark:text-gray-400">Start a new chat or choose one from the left.</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btnRename" class="px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-[#07202b]">Rename</button>
+            <button id="btnDelete" class="px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-[#07202b]">Delete</button>
+          </div>
+        </div>
+
+        <div id="messagesContainer" class="flex-1 overflow-auto p-4 space-y-4 no-scrollbar" tabindex="0" aria-live="polite">
+          <!-- Messages injected here -->
+        </div>
+
+        <!-- Input bar (sticky/fixed) -->
+        <footer class="input-bar safe-bottom fixed bottom-0 left-0 right-0 z-30 px-3 py-3 border-t bg-white dark:bg-[#071118] dark:border-[#07202b]">
+          <div class="max-w-4xl mx-auto flex items-end gap-2">
+            <textarea id="inputBox" rows="1" placeholder="Send a message..." class="flex-1 resize-none rounded-lg p-3 text-sm border focus:outline-none focus:ring transition-fast" aria-label="Message input"></textarea>
+            <button id="btnSend" class="px-4 py-2 rounded-md bg-blue-600 text-white">Send</button>
+          </div>
+          <div class="max-w-4xl mx-auto mt-2 flex items-center justify-between text-xs text-gray-500">
+            <div>Press Enter to send • Shift+Enter for newline</div>
+            <div id="streamStatus">Idle</div>
+          </div>
+        </footer>
+      </section>
+
+    </main>
+
+    <!-- Footer spacing to allow input to not cover contents-->
+  <div style="height:calc(env(safe-area-inset-bottom,0) + 84px)"></div>
+  </div>
+
+  <!-- Settings modal (hidden by default) --> <div id="modalBackdrop" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/40">
+    <div class="w-full max-w-2xl mx-4 bg-white dark:bg-[#071118] rounded-lg shadow-lg p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold">Settings</h3>
+        <button id="closeSettings">✕</button>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm">OpenRouter API Key</label>
+          <input id="apiKeyInput" type="password" class="w-full rounded-md p-2 border bg-white dark:bg-[#021017]" placeholder="sk-..." />
+          <div class="text-xs text-gray-500 mt-1">Stored only in your browser localStorage.</div>
+        </div>
+        <div>
+          <label class="block text-sm">Model</label>
+          <input id="modelInput" type="text" class="w-full rounded-md p-2 border bg-white dark:bg-[#021017]" placeholder="deepseek/deepseek-r1:free" />
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="saveSettings" class="px-3 py-2 rounded-md bg-blue-600 text-white">Save</button>
+          <button id="clearApi" class="px-3 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-[#07202b]">Clear API Key</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- System prompt modal -->
+  <div id="modalSystem" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/40">
+    <div class="w-full max-w-2xl mx-4 bg-white dark:bg-[#071118] rounded-lg shadow-lg p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-semibold">System Prompt</h3>
+        <button id="closeSystem">✕</button>
+      </div>
+      <textarea id="systemPromptInput" rows="6" class="w-full rounded-md p-2 border bg-white dark:bg-[#021017]" placeholder="You are a helpful assistant..."></textarea>
+      <div class="mt-3 flex justify-end gap-2">
+        <button id="saveSystem" class="px-3 py-2 rounded-md bg-blue-600 text-white">Save</button>
+        <button id="resetSystem" class="px-3 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-[#07202b]">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template for message item (hidden) -->
+  <template id="tplMessage">
+    <div class="message flex items-start gap-3">
+      <div class="avatar shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white bg-gray-400">A</div>
+      <div class="bubble p-3 rounded-lg bg-white dark:bg-[#022233] text-sm"></div>
+    </div>
+  </template>
+
+  <!-- Main script - ONLY at the very end of <body> -->
+  <script>
+  (function () {
+    'use strict';
+    /********************************************************************
+     * Universal AI Chat (Single index.html)
+     * - ZERO-BUILD, vanilla JS
+     * - Streams from OpenRouter
+     * - localStorage persistence
+     * - Marked.js for markdown
+     * - highlight.js for code blocks
+     ********************************************************************/
+
+    // Defensive helpers
+    function safeParseJSON(s, fallback) {
+      try { return JSON.parse(s); } catch (e) { return fallback; }
+    }
+    function uid(prefix='id') {
+      return prefix + '_' + Math.random().toString(36).slice(2,9);
+    }
+
+    // LocalStorage helpers (with try/catch)
+    function lsGet(key, fallback) {
+      try {
+        const v = localStorage.getItem(key);
+        if (v === null) return fallback;
+        return safeParseJSON(v, v);
+      } catch (e) {
+        console.warn('lsGet err', e);
+        return fallback;
+      }
+    }
+    function lsSet(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch (e) {
+        console.warn('lsSet err', e);
+      }
+    }
+    function lsRemove(key) {
+      try { localStorage.removeItem(key); } catch(e){}
+    }
+
+    // Keys
+    const LS_KEYS = {
+      API_KEY: 'uai_api_key_v1',
+      MODEL: 'uai_model_v1',
+      CHATS: 'uai_chats_v1',
+      THEME: 'uai_theme_v1',
+      GLOBAL_SYSTEM: 'uai_global_system_v1'
+    };
+
+    // DOM refs
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+    const loading = $('#loading');
+    const chatsList = $('#chatsList');
+    const mobileChatsList = $('#mobileChatsList');
+    const mobileSidebar = $('#mobileSidebar');
+    const mobileOverlay = $('#mobileOverlay');
+    const hamburger = $('#hamburger');
+    const mobileClose = $('#mobileClose');
+    const mobileNewChat = $('#mobileNewChat');
+    const btnNewChat = $('#btnNewChat');
+    const btnClearAll = $('#btnClearAll');
+    const btnSettings = $('#btnSettings');
+    const modalBackdrop = $('#modalBackdrop');
+    const apiKeyInput = $('#apiKeyInput');
+    const modelInput = $('#modelInput');
+    const saveSettings = $('#saveSettings');
+    const closeSettings = $('#closeSettings');
+    const clearApi = $('#clearApi');
+    const toggleTheme = $('#toggleTheme');
+    const modelBadge = $('#modelBadge');
+
+    const btnSystem = $('#btnSystem');
+    const modalSystem = $('#modalSystem');
+    const closeSystem = $('#closeSystem');
+    const systemPromptInput = $('#systemPromptInput');
+    const saveSystem = $('#saveSystem');
+    const resetSystem = $('#resetSystem');
+
+    const chatTitle = $('#chatTitle');
+    const chatSubtitle = $('#chatSubtitle');
+    const messagesContainer = $('#messagesContainer');
+    const tplMessage = $('#tplMessage').content;
+    const inputBox = $('#inputBox');
+    const btnSend = $('#btnSend');
+    const streamStatus = $('#streamStatus');
+
+    const btnRename = $('#btnRename');
+    const btnDelete = $('#btnDelete');
+    const btnClearAllEl = $('#btnClearAll');
+
+    // State
+    let state = {
+      apiKey: lsGet(LS_KEYS.API_KEY, '') || '',
+      model: lsGet(LS_KEYS.MODEL, '') || 'deepseek/deepseek-r1:free',
+      theme: lsGet(LS_KEYS.THEME, 'light') || 'light',
+      chats: lsGet(LS_KEYS.CHATS, []) || [],
+      activeChatId: null,
+      streamingController: null
+    };
+
+    // Initialize marked options
+    if (window.marked) {
+      marked.setOptions({
+        breaks: true,
+        mangle: false,
+        headerIds: false,
+        sanitizer: false,
+        highlight: function(code, lang) {
+          try {
+            return hljs.highlightAuto(code).value;
+          } catch (e) {
+            return code;
+          }
+        }
+      });
+    }
+
+    // --- Utility: create a new chat object ---
+    function createChat(title = 'New Chat') {
+      return {
+        id: uid('chat'),
+        title: title,
+        createdAt: Date.now(),
+        systemPrompt: lsGet(LS_KEYS.GLOBAL_SYSTEM, '') || '',
+        messages: [] // {role: 'user'|'assistant'|'system', content: '...'}
+      };
+    }
+
+    // Load saved chats or create initial
+    if (!Array.isArray(state.chats)) state.chats = [];
+    if (state.chats.length === 0) {
+      const c = createChat('Welcome');
+      c.messages.push({role:'system', content: c.systemPrompt || 'You are a helpful assistant.'});
+      c.messages.push({role:'assistant', content: 'Hi — I am your assistant. Type a message to start a conversation.'});
+      state.chats = [c];
+      state.activeChatId = c.id;
+      persistChats();
+    } else {
+      // ensure activeChatId
+      state.activeChatId = state.chats[0].id;
+    }
+
+    // Persist chats
+    function persistChats() {
+      lsSet(LS_KEYS.CHATS, state.chats);
+    }
+    function persistSettings() {
+      lsSet(LS_KEYS.API_KEY, state.apiKey);
+      lsSet(LS_KEYS.MODEL, state.model);
+      lsSet(LS_KEYS.THEME, state.theme);
+    }
+
+    // Find active chat
+    function getActiveChat() {
+      return state.chats.find(c => c.id === state.activeChatId) || state.chats[0] || null;
+    }
+
+    // Render sidebar lists
+    function renderChats() {
+      try {
+        chatsList.innerHTML = '';
+        mobileChatsList.innerHTML = '';
+        state.chats.forEach(chat => {
+          const item = document.createElement('div');
+          item.className = 'p-2 rounded-md cursor-pointer hover:bg-gray-100 dark:hover:bg-[#06121a] transition-fast flex items-center justify-between';
+          item.dataset.id = chat.id;
+          item.innerHTML = `<div class="flex items-center gap-3">
+                              <div class="w-8 h-8 rounded-md bg-gray-200 dark:bg-[#06222a] flex items-center justify-center text-xs font-medium">${chat.title.slice(0,2).toUpperCase()}</div>
+                              <div>
+                                <div class="text-sm font-medium">${escapeHtml(chat.title)}</div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400">${new Date(chat.createdAt).toLocaleString()}</div>
+                              </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                              <button data-action="rename" class="text-xs px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-[#05202a]">Rename</button>
+                              <button data-action="delete" class="text-xs px-2 py-1 rounded hover:bg-red-100 dark:hover:bg-[#400a0a]">Del</button>
+                            </div>`;
+          item.addEventListener('click', (e) => {
+            const act = e.target.closest('button') && e.target.closest('button').dataset.action;
+            if (act === 'rename') {
+              const newTitle = prompt('Rename chat', chat.title);
+              if (newTitle !== null) {
+                chat.title = newTitle || 'Untitled';
+                persistChats();
+                renderChats();
+                renderActiveChat();
+              }
+              return;
+            }
+            if (act === 'delete') {
+              if (!confirm('Delete this chat?')) return;
+              state.chats = state.chats.filter(c => c.id !== chat.id);
+              if (state.activeChatId === chat.id) state.activeChatId = state.chats[0] ? state.chats[0].id : null;
+              persistChats();
+              renderChats();
+              renderActiveChat();
+              return;
+            }
+            // activate
+            state.activeChatId = chat.id;
+            renderChats();
+            renderActiveChat();
+            closeMobileSidebar();
+          });
+          chatsList.appendChild(item);
+
+          // mobile item (simple)
+          const mitem = item.cloneNode(true);
+          mitem.addEventListener('click', () => {
+            state.activeChatId = chat.id;
+            renderChats();
+            renderActiveChat();
+            closeMobileSidebar();
+          });
+          mobileChatsList.appendChild(mitem);
+        });
+
+        // highlight active
+    $$('#chatsList > div').forEach(el => {
+          if (el.dataset.id === state.activeChatId) {
+            el.classList.add('bg-gray-100','dark:bg-[#05202a]');
+          } else {
+            el.classList.remove('bg-gray-100','dark:bg-[#05202a]');
+          }
+        });
+      } catch (e) { console.error('renderChats', e); }
+    }
+
+    // Escape HTML to avoid injection in small places
+    function escapeHtml(s='') {
+      return (''+s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; });
+    }
+
+    // Render the active chat in main area
+    function renderActiveChat() {
+      try {
+        const chat = getActiveChat();
+        if (!chat) {
+          chatTitle.textContent = 'No chat';
+          messagesContainer.innerHTML = '';
+          return;
+        }
+        chatTitle.textContent = chat.title || 'Chat';
+        chatSubtitle.textContent = `Messages: ${chat.messages.length} • Model: ${state.model}`;
+
+        // render messages
+        messagesContainer.innerHTML = '';
+        chat.messages.forEach((m, idx) => {
+          const msgEl = renderMessage(m, idx === chat.messages.length - 1 && state.streamingController);
+          messagesContainer.appendChild(msgEl);
+        });
+        // scroll to bottom
+        setTimeout(() => { messagesContainer.scrollTop = messagesContainer.scrollHeight; }, 60);
+        // update model badge
+        modelBadge.textContent = `model: ${state.model}`;
+      } catch (e) { console.error('renderActiveChat', e); }
+    }
+
+    // Render a single message DOM node
+    function renderMessage(msg, isStreaming=false) {
+      const node = tplMessage.cloneNode(true);
+      const wrapper = node.querySelector('.message');
+      const avatar = node.querySelector('.avatar');
+      const bubble = node.querySelector('.bubble');
+
+      if (msg.role === 'user') {
+        wrapper.classList.add('justify-end');
+        avatar.textContent = 'You';
+        avatar.classList.remove('bg-gray-400');
+        avatar.classList.add('bg-blue-600');
+        bubble.classList.add('bg-white','dark:bg-[#073844]');
+        bubble.style.textAlign = 'right';
+      } else if (msg.role === 'system') {
+        avatar.textContent = 'S';
+        avatar.classList.add('bg-gray-500');
+        bubble.classList.add('bg-gray-50','dark:bg-[#021418]','text-xs');
+      } else { // assistant
+        avatar.textContent = 'AI';
+        avatar.classList.add('bg-gray-600');
+        bubble.classList.add('bg-white','dark:bg-[#022233]');
+        bubble.style.textAlign = 'left';
+      }
+
+      // Render markdown content into bubble
+      try {
+        const html = marked.parse(msg.content || '');
+        bubble.innerHTML = html;
+        // highlight code blocks
+        try { hljs.highlightAll(); } catch (e) {}
+      } catch (e) {
+        bubble.textContent = msg.content || '';
+      }
+
+      return node;
+    }
+
+    // Add message to chat and persist & render
+    function addMessageToChat(role, content) {
+      const chat = getActiveChat();
+      if (!chat) return;
+      chat.messages.push({role, content});
+      persistChats();
+      renderActiveChat();
+    }
+
+    // Update last assistant message content (for streaming)
+    function updateLastAssistantContent(chunk) {
+      const chat = getActiveChat();
+      if (!chat) return;
+      // find the last assistant message
+      let last = null;
+      for (let i = chat.messages.length - 1; i >= 0; i--) {
+        if (chat.messages[i].role === 'assistant') { last = chat.messages[i]; break; }
+      }
+      if (!last) {
+        // push a new message
+        chat.messages.push({role: 'assistant', content: chunk});
+      } else {
+        last.content = (last.content || '') + chunk;
+      }
+      persistChats();
+      // re-render only the last message for performance
+      // (simple approach: re-render all)
+      renderActiveChat();
+    }
+
+    // Clear streaming controller safely
+    function stopStreaming() {
+      try {
+        if (state.streamingController && typeof state.streamingController.abort === 'function') {
+          state.streamingController.abort();
+        }
+      } catch (e) { console.warn('stopStreaming err', e); }
+      state.streamingController = null;
+      streamStatus.textContent = 'Idle';
+    }
+
+    // ---- OpenRouter streaming function ----
+    // messages: [{role, content}] ; onToken(tokenStr) ; onDone(); onError(err)
+      async function streamOpenRouter(messages, onToken, onDone, onError) {
+      const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+      if (!state.apiKey) {
+        onError && onError(new Error('No API key set. Open Settings to add your OpenRouter API key.'));
+        return;
+      }
+      const controller = new AbortController();
+      state.streamingController = controller;
+      streamStatus.textContent = 'Streaming...';
+
+      try {
+        const payload = {
+          model: state.model || 'deepseek/deepseek-r1:free',
+          messages: messages,
+          stream: true,
+          temperature: 0.2
+        };
+
+        const res = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + state.apiKey
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+
+        if (!res.ok) {
+          const txt = await res.text().catch(()=>null);
+          let errMsg = `OpenRouter request failed: ${res.status} ${res.statusText}`;
+          try {
+            const j = JSON.parse(txt);
+            if (j?.message) errMsg += ' — ' + j.message;
+          } catch(e){}
+          onError && onError(new Error(errMsg));
+          stopStreaming();
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const {done, value} = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, {stream: true});
+          // OpenRouter uses SSE-like "data: {json}\n\n" messages. Split on double newline
+          let parts = buffer.split(/\n\n/);
+          // Keep last partial
+          buffer = parts.pop();
+          for (const part of parts) {
+            const line = part.trim();
+            if (!line) continue;
+            // Each line may start with "data: "
+            const dataLine = line.replace(/^data:\s*/, '');
+            if (dataLine === '[DONE]') {
+              onDone && onDone();
+              stopStreaming();
+              return;
+            }
+            try {
+              const payload = JSON.parse(dataLine);
+              // payload structure may contain choices[0].delta.content
+              const token = (payload?.choices && payload.choices[0] && (payload.choices[0].delta?.content || payload.choices[0].delta?.message?.content?.parts?.[0] || payload.choices[0].text)) || '';
+              if (token) {
+                onToken(token);
+              }
+            } catch (e) {
+              // Not JSON? try to handle as plain text
+              onToken(dataLine);
+            }
+          }
+        }
+        // If ended naturally
+        onDone && onDone();
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          onError && onError(new Error('Streaming aborted.'));
+        } else {
+          onError && onError(err);
+        }
+      } finally {
+        stopStreaming();
+      }
+    }
+
+    // Build message history for OpenRouter: include system messages, chat messages
+    function buildOpenRouterMessages(chat) {
+      const arr = [];
+      // Add system prompt if present
+      if (chat.systemPrompt) arr.push({role:'system', content: chat.systemPrompt});
+      // Add all chat messages sequentially
+      for (const m of chat.messages) {
+        // Skip existing assistant placeholders for safety when sending new request
+        if (m.role === 'assistant') continue;
+        if (m.role === 'system') continue;
+        arr.push({role: m.role, content: m.content});
+      }
+      return arr;
+    }
+
+    // Send user message -> stream assistant reply
+    async function sendMessageUser(text) {
+      if (!text || !text.trim()) return;
+      const chat = getActiveChat();
+      if (!chat) return;
+      // push user message
+      chat.messages.push({role:'user', content: text});
+      persistChats();
+      renderActiveChat();
+
+      // Append an empty assistant message to be populated by stream
+      chat.messages.push({role:'assistant', content: ''});
+      persistChats();
+      renderActiveChat();
+
+      // Build messages to send to API
+      const apiMessages = buildOpenRouterMessages(chat);
+
+
+      // Perform streaming call
+      let tokenBuffer = '';
+      try {
+        await streamOpenRouter(apiMessages,
+          (token) => {
+            tokenBuffer += token;
+            // update last assistant content with the chunk
+            updateLastAssistantContent(token);
+            // scroll gently
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          },
+          () => {
+            // done
+            streamStatus.textContent = 'Complete';
+            persistChats();
+            // small delay then set Idle
+            setTimeout(()=> { streamStatus.textContent = 'Idle'; }, 400);
+          },
+          (err) => {
+            // error handler
+            streamStatus.textContent = 'Error';
+            addMessageToChat('assistant', '\n\n[Error] ' + (err?.message || 'Unknown error.'));
+            console.error('Stream error:', err);
+          }
+        );
+      } catch (e) {
+        console.error('sendMessageUser err', e);
+      } finally {
+        state.streamingController = null;
+      }
+    }
+
+    // ---- UI event wiring ----
+    function wireUI() {
+      // Initial fill settings inputs
+      apiKeyInput.value = state.apiKey || '';
+      modelInput.value = state.model || '';
+      systemPromptInput.value = (getActiveChat() && getActiveChat().systemPrompt) || lsGet(LS_KEYS.GLOBAL_SYSTEM, '') || '';
+
+      // Buttons
+      btnNewChat.addEventListener('click', () => {
+        const c = createChat('Chat ' + (state.chats.length + 1));
+        state.chats.unshift(c);
+        state.activeChatId = c.id;
+        persistChats();
+        renderChats();
+        renderActiveChat();
+      });
+      mobileNewChat.addEventListener('click', () => {
+        btnNewChat.click();
+        closeMobileSidebar();
+      });
+
+      btnClearAll.addEventListener('click', () => {
+        if (!confirm('Clear ALL chats? This cannot be undone.')) return;
+        state.chats = [];
+        const c = createChat('New Chat');
+        state.chats = [c];
+        state.activeChatId = c.id;
+        persistChats();
+        renderChats();
+        renderActiveChat();
+      });
+
+      // Sidebar mobile open
+      hamburger.addEventListener('click', openMobileSidebar);
+      mobileClose.addEventListener('click', closeMobileSidebar);
+      document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
+
+      function openMobileSidebar() {
+        mobileSidebar.style.transform = 'translateX(0)';
+        mobileOverlay.classList.remove('hidden');
+        mobileOverlay.classList.add('mobile-overlay');
+        mobileOverlay.addEventListener('click', closeMobileSidebar);
+      }
+      function closeMobileSidebar() {
+        mobileSidebar.style.transform = 'translateX(-100%)';
+        mobileOverlay.classList.add('hidden');
+        mobileOverlay.classList.remove('mobile-overlay');
+      }
+
+      // Settings modal open/close
+      btnSettings.addEventListener('click', () => {
+        modalBackdrop.classList.remove('hidden');
+        apiKeyInput.value = state.apiKey || '';
+        modelInput.value = state.model || '';
+      });
+      closeSettings.addEventListener('click', () => modalBackdrop.classList.add('hidden'));
+      saveSettings.addEventListener('click', () => {
+        state.apiKey = apiKeyInput.value.trim();
+        state.model = modelInput.value.trim() || state.model;
+        persistSettings();
+        modalBackdrop.classList.add('hidden');
+        modelBadge.textContent = `model: ${state.model}`;
+        alert('Settings saved locally.');
+      });
+      clearApi.addEventListener('click', () => {
+        if (!confirm('Clear stored API key?')) return;
+        state.apiKey = '';
+        apiKeyInput.value = '';
+        lsRemove(LS_KEYS.API_KEY);
+        alert('API key removed.');
+      });
+
+      // System prompt modal
+      btnSystem.addEventListener('click', () => {
+        modalSystem.classList.remove('hidden');
+        // load current chat system prompt
+        const chat = getActiveChat();
+        systemPromptInput.value = (chat && chat.systemPrompt) || lsGet(LS_KEYS.GLOBAL_SYSTEM, '') || '';
+      });
+      closeSystem.addEventListener('click', () => modalSystem.classList.add('hidden'));
+      saveSystem.addEventListener('click', () => {
+        const val = systemPromptInput.value || '';
+        const chat = getActiveChat();
+        if (chat) {
+          chat.systemPrompt = val;
+          persistChats();
+        }
+        // Optionally save global system prompt
+        lsSet(LS_KEYS.GLOBAL_SYSTEM, val);
+        modalSystem.classList.add('hidden');
+        alert('System prompt saved for this chat.');
+      });
+      resetSystem.addEventListener('click', () => {
+        if (!confirm('Reset system prompt for this chat and global?')) return;
+        systemPromptInput.value = '';
+      });
+
+      // Theme toggle
+      function applyTheme() {
+        if (state.theme === 'dark') {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+        lsSet(LS_KEYS.THEME, state.theme);
+      }
+      toggleTheme.addEventListener('click', () => {
+        state.theme = (state.theme === 'dark') ? 'light' : 'dark';
+        applyTheme();
+      });
+      applyTheme();
+
+      // Input send handler
+      btnSend.addEventListener('click', () => {
+        submitInput();
+      });
+      inputBox.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          submitInput();
+        }
+      });
+
+      // Rename & delete buttons
+      btnRename.addEventListener('click', () => {
+        const chat = getActiveChat();
+        if (!chat) return;
+        const name = prompt('Rename chat', chat.title);
+        if (name !== null) {
+          chat.title = name || chat.title;
+          persistChats();
+          renderChats();
+          renderActiveChat();
+        }
+      });
+      btnDelete.addEventListener('click', () => {
+        const chat = getActiveChat();
+        if (!chat) return;
+        if (!confirm('Delete this chat?')) return;
+        state.chats = state.chats.filter(c => c.id !== chat.id);
+        state.activeChatId = state.chats[0] ? state.chats[0].id : null;
+        persistChats();
+        renderChats();
+        renderActiveChat();
+      });
+
+      // small defensive UI: on window focus restore scrolling
+      window.addEventListener('focus', () => {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      });
+    }
+
+    function submitInput() {
+      const text = inputBox.value.trim();
+      if (!text) return;
+      inputBox.value = '';
+      inputBox.style.height = '';
+      // Start sending
+      sendMessageUser(text);
+    }
+
+    // Keyboard-safe textarea auto-grow (mobile friendly)
+    function wireAutoGrow() {
+      inputBox.addEventListener('input', () => {
+        inputBox.style.height = 'auto';
+        inputBox.style.height = (inputBox.scrollHeight) + 'px';
+      });
+      // attempt to keep input visible when keyboard opens on mobile
+      inputBox.addEventListener('focus', () => {
+        setTimeout(()=> {
+          inputBox.scrollIntoView({behavior:'smooth', block:'center'});
+        }, 300);
+      });
+    }
+
+    // Initialize app
+    function init() {
+      try {
+        // Hide loader after JS initializes
+        loading.style.display = 'none';
+      } catch (e) { console.warn('init hide loader', e); }
+      // Render UI
+      renderChats();
+      renderActiveChat();
+      wireUI();
+      wireAutoGrow();
+
+      // attach escape key to close modals
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          modalBackdrop.classList.add('hidden');
+          modalSystem.classList.add('hidden');
+          closeMobileSidebar();
+        }
+      });
+
+      // safety: prevent accidental navigation while streaming
+      window.addEventListener('beforeunload', (e) => {
+        if (state.streamingController) {
+          e.preventDefault();
+          e.returnValue = '';
+        }
+      });
+
+      // initial status
+      streamStatus.textContent = 'Idle';
+    }
+
+    // --- Boot ---
+    try {
+      // Defensive checks
+      if (!window.fetch) {
+        alert('Your browser is unsupported: fetch API missing.');
+      }
+      if (!window.marked) {
+        alert('Marked.js is missing — markdown rendering will be disabled.');
+      }
+      // Start app
+      init();
+    } catch (e) {
+      console.error('App initialization failed', e);
+      alert('Initialization error: ' + (e && e.message));
+    }
+
+    // Expose minimal debug on window for power users (non-build)
+    window.UAI = {
+      state,
+      lsGet, lsSet, lsRemove,
+      createChat,
+      renderChats,
+      renderActiveChat,
+      sendMessageUser,
+      stopStreaming
+    };
+
+    // Ensure input is visible on load
+    setTimeout(()=> {
+      try { inputBox.scrollIntoView(); } catch(e){}
+    }, 300);
+
+  })();
+  </script>
+</body>
+</html>
 
